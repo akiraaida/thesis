@@ -1,9 +1,11 @@
+import csv
 import sys
 
 class Player:
-    def __init__(self, pid, ping):
+    def __init__(self, pid, ping, rank):
         self.pid = pid
         self.ping = ping
+        self.rank = rank
 
     def __repr__(self):
         return "Player: " + str(self.pid)
@@ -13,6 +15,9 @@ class Player:
 
     def getPing(self):
         return self.ping
+
+    def getRank(self):
+        return self.rank
 
 class PermutationBuilder:
 
@@ -85,12 +90,15 @@ class PermutationBuilder:
                     print(temp)
                     print("End Cost: " + str(cost + matchCost))
 
-p1 = Player(0, 50)
-p2 = Player(1, 100)
-p3 = Player(2, 25)
-p4 = Player(3, 75)
-p5 = Player(4, 175)
-p6 = Player(5, 1750)
-players = [p1, p2, p3, p4, p5, p6]
+players = []
+counter = 0
+with open('data.csv', 'r') as f:
+    reader = csv.reader(f)
+    for row in reader:
+        if row[1] == 'LeagueIndex':
+            continue
+        newPlayer = Player(counter, float(row[13]), row[1])
+        players.append(newPlayer)
+        counter += 1
 builder = PermutationBuilder()
 builder.calculatePairs1v1(players, 0, [])
