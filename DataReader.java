@@ -29,6 +29,7 @@ public class DataReader {
      */
     private static final int MMR_BUCKET_SIZE = 1;
     private static final int PING_BUCKET_SIZE = 25;
+    private static final float BETA = 0.8f;
 
     /**
      * Stores the edges between the buckets and the players (both ways)
@@ -94,6 +95,9 @@ public class DataReader {
 
                     assignEdges(counter, mmr, ping);
                     counter++;
+                    if (counter == 4) {
+                        break;
+                    }
                 } else {
                     title = false;
                 }
@@ -103,7 +107,7 @@ public class DataReader {
         }
     }
 
-    /*
+    /**
      * Calculate the initial transition matrix and writes the indexes and values to a file that
      * are non-zero.
      */
@@ -121,13 +125,13 @@ public class DataReader {
             List<String> edges = outterEntry.getValue();
             for (Map.Entry<String, List<String>> innerEntry : mEdges.entrySet()) {
                 if(edges.contains(innerEntry.getKey())){
-                    float val = 1.0f / outterEntry.getValue().size();
-                    String line = "A" + "," + i + "," + j + "," + val;
+                    float val = 1.0f / (outterEntry.getValue().size() / BETA);
 
+                    String transLine = "A" + "," + i + "," + j + "," + val;
                     try(FileWriter fw = new FileWriter(OUTPUT_FILE, true);
                     BufferedWriter bw = new BufferedWriter(fw);
                     PrintWriter out = new PrintWriter(bw)){
-                        out.println(line);
+                        out.println(transLine);
                     } catch (IOException e) {
                         System.err.println("Error: " + e.toString());
                     }
@@ -135,6 +139,23 @@ public class DataReader {
                 ++j;
             }
             ++i;
+        }
+
+    }
+
+    /**
+     * Writes the initial matrix to a file
+     */
+    private static void calcInitialMatrix() {
+        for(int k=0; k < mEdges.size(); ++k) {
+            String vLine = "B" + "," + "0" + "," + k + "," + "0.2";
+            try(FileWriter fw = new FileWriter(OUTPUT_FILE, true);
+            BufferedWriter bw = new BufferedWriter(fw);
+            PrintWriter out = new PrintWriter(bw)){
+                out.println(vLine);
+            } catch (IOException e) {
+                System.err.println("Error: " + e.toString());
+            }
         }
     }
 
@@ -145,5 +166,6 @@ public class DataReader {
         mEdges = new LinkedHashMap<String, List<String>>();
         readInCSV();
         calcTransitionMatrix();
+        calcInitialMatrix();
     }
 }
