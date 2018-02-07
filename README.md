@@ -1,4 +1,4 @@
-### Undergraduate Thesis - Match Making with Random Walking with Reset
+### Undergraduate Thesis - Match Making with Random Walk with Reset
 - Implementation of the Random Walk with Reset Algorithm to calculate similarity values for a player node.
 - Code Implementation: Scala.
 - Distributed Computing Framework: Apache Spark.
