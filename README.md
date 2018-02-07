@@ -12,7 +12,7 @@
 - **inc/**: The input and output data files
     - SkillCraft1_Dataset.csv: The raw dataset from online (http://archive.ics.uci.edu/ml/datasets/skillcraft1+master+table+dataset)
     - data.csv: The dataset with the first line (header) removed. Used as input for the PrepData.scala program.
-    - transition.csv: The output of the PrepData.scala program which is a .csv file of (key, row, col, value) entries for the construction of the transition matrix.
+    - trunc.csv: A small segment of the data.csv used for testing.
 - **doc/**: Reference material
     - book.pdf: Mining of Massive Datasets (http://www.mmds.org/)
 - **src/**: The source code implementation of the solution.
