@@ -1,1 +1,5 @@
 *.swp
+project/
+target/
+transition/
+spark-warehouse/

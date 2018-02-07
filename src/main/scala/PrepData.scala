@@ -14,7 +14,7 @@ object PrepData {
     import spark.implicits._
 
     // Load the csv file in
-    val csv = spark.read.textFile("data.csv")
+    val csv = spark.read.textFile("inc/data.csv")
 
     // Filter the data to what is needed, converting it to an RDD and adding the index
     val filterData = csv.map(_.split(",") match {
@@ -78,7 +78,7 @@ object PrepData {
     })
 
     // Save the matrix to sparse
-    saveData.saveAsTextFile("sparse")
+    saveData.saveAsTextFile("transition")
 
     // Clean up
     sc.stop()
