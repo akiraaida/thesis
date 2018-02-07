@@ -2,7 +2,7 @@
 - Implementation of the Random Walk with Reset Algorithm to calculate similarity values for a player node.
 - Code Implementation: Scala.
 - Distributed Computing Framework: Apache Spark.
-### Software Used
+#### Software Used
 ##### The application may work with different software versions but this is what I had installed.
 - Scala (Version 2.11.8)
 - Java (Version 1.8.0_161)
