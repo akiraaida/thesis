@@ -10,7 +10,6 @@
 - Java (Version 1.8.0_161)
 - Spark (Version 2.2.0)
 - sbt (Version 1.1.0)
-    - Add the location of each bin/ to your PATH variable.
 #### Calculating the Transition Matrix
 - You should be in ./src/prep (where the build.sbt is)
     - Execute 'sbt package'
