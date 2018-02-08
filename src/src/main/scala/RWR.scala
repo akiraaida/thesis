@@ -67,7 +67,7 @@ object RWR {
 
     // Create the column matrix. Initially it is a matrix with all 0s except for the location
     // where the target player would be located
-    val colMatrix = sc.broadcast(Array(((targetPlayer.value._2, 0), 1)))
+    val initialIter = sc.broadcast(Array(((targetPlayer.value._2, 0.toLong), 1.0)))
 
     // Determine the (1 - B) * e_N portion. The assumption is that e_N is a column vector
     // with 1 in a specific spot for target player
@@ -76,6 +76,9 @@ object RWR {
         ((targetPlayer.value._2, index), 1 - BETA)
       }
     })
+
+    // Clean up the broadcast variable since it will not be used again
+    targetPlayer.unpersist(blocking = true)
 
     // Create the transition matrix, using the key's unique id as the column and the edge's unique
     // id as the row. Calculate the value by dividing 1 (100%) by the number of edges for the key.
@@ -94,23 +97,51 @@ object RWR {
       }
     }).union(initial).reduceByKey(_ + _)
 
-    // Execute the matrix multiplication, only keeping the values that are > 0. Then reduce the
-    // values by their key
-    val result = transition.flatMap(_ match {
-      case ((row, col), value) => {
-        colMatrix.value.map(_ match {
-          case ((row2, col2), value2) => {
-            if (col == row2) {
-             ((row, 0), (value * value2).toDouble)
-            } else {
-             ((row, 0), 0.0)
+    // Clean up the broadcast variable since it will not be used again
+    refMap.unpersist(blocking = true)
+
+    // A function used to multiply the matrices
+    def matrixMultiply(transition: org.apache.spark.rdd.RDD[((Long, Long), Double)],
+                  broadcast: org.apache.spark.broadcast.Broadcast[Array[((Long, Long), Double)]]): 
+                                    org.apache.spark.rdd.RDD[((Long, Long), Double)] = {
+
+      val result = transition.flatMap(_ match {
+        case ((row, col), value) => {
+          broadcast.value.map(_ match {
+            case ((row2, col2), value2) => {
+              if (col == row2) {
+               ((row.toLong, 0.toLong), (value * value2).toDouble)
+              } else {
+               ((row.toLong, 0.toLong), 0.0)
+              }
             }
-          }
-        })
-      }
-    }).filter(_ match {
-      case ((row, col), value) => value > 0
-    }).reduceByKey(_ + _)
+          })
+        }
+      }).filter(_ match {
+        case ((row, col), value) => value > 0
+      }).reduceByKey(_ + _)
+
+      result
+    }
+    
+    // Continuously calculate the result matrix 5 times
+    val firstIter = sc.broadcast(matrixMultiply(transition, initialIter).collect())
+    initialIter.unpersist(blocking = true)
+    val secondIter = sc.broadcast(matrixMultiply(transition, firstIter).collect())
+    secondIter.unpersist(blocking = true)
+    val thirdIter = sc.broadcast(matrixMultiply(transition, secondIter).collect())
+    thirdIter.unpersist(blocking = true)
+    val fourthIter = sc.broadcast(matrixMultiply(transition, thirdIter).collect())
+    fourthIter.unpersist(blocking = true)
+    val finalIter = matrixMultiply(transition, fourthIter).sortByKey().collect()
+
+    /*
+    players.collect().map(println(_))
+    println("AKIRA")
+    println(targetPlayer.value)
+    finalIter.map(println(_))
+    mapData.collect().map(println(_))
+    */
 
     // Clean up
     sc.stop()
