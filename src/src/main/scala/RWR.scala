@@ -5,7 +5,7 @@ object RWR {
   def main(args: Array[String]) {
 
     // Constants
-    val PING_BUCKET_SIZE = 25
+    val PING_BUCKET_SIZE = 1
     val MMR_BUCKET_SIZE = 1
     val BETA = 0.8
 
@@ -53,8 +53,9 @@ object RWR {
       }
     })
 
+
     // Collect the tuple map as a hashmap onto the driver node and broadcast it to all nodes.
-    // This will be used to lookup the row/columns
+    // This will be used to lookup the row/columns and vice versa
     val refMap = sc.broadcast(refMapTuple.collectAsMap)
 
     // Get only the player nodes
@@ -76,9 +77,6 @@ object RWR {
         ((targetPlayer.value._2, index), 1 - BETA)
       }
     })
-
-    // Clean up the broadcast variable since it will not be used again
-    targetPlayer.unpersist(blocking = true)
 
     // Create the transition matrix, using the key's unique id as the column and the edge's unique
     // id as the row. Calculate the value by dividing 1 (100%) by the number of edges for the key.
@@ -124,24 +122,83 @@ object RWR {
       result
     }
     
-    // Continuously calculate the result matrix 5 times
-    val firstIter = sc.broadcast(matrixMultiply(transition, initialIter).collect())
+    // Continuously calculate the result matrix
+    val iter1 = sc.broadcast(matrixMultiply(transition, initialIter).collect())
     initialIter.unpersist(blocking = true)
-    val secondIter = sc.broadcast(matrixMultiply(transition, firstIter).collect())
-    secondIter.unpersist(blocking = true)
-    val thirdIter = sc.broadcast(matrixMultiply(transition, secondIter).collect())
-    thirdIter.unpersist(blocking = true)
-    val fourthIter = sc.broadcast(matrixMultiply(transition, thirdIter).collect())
-    fourthIter.unpersist(blocking = true)
-    val finalIter = matrixMultiply(transition, fourthIter).sortByKey().collect()
+    val iter2 = sc.broadcast(matrixMultiply(transition, iter1).collect())
+    iter1.unpersist(blocking = true)
+    val iter3 = sc.broadcast(matrixMultiply(transition, iter2).collect())
+    iter2.unpersist(blocking = true)
+    val iter4 = sc.broadcast(matrixMultiply(transition, iter3).collect())
+    iter3.unpersist(blocking = true)
+    val iter5 = sc.broadcast(matrixMultiply(transition, iter4).collect())
+    iter4.unpersist(blocking = true)
+    val iter6 = sc.broadcast(matrixMultiply(transition, iter5).collect())
+    iter5.unpersist(blocking = true)
+    val iter7 = sc.broadcast(matrixMultiply(transition, iter6).collect())
+    iter6.unpersist(blocking = true)
+    val iter8 = sc.broadcast(matrixMultiply(transition, iter7).collect())
+    iter7.unpersist(blocking = true)
+    val iter9 = sc.broadcast(matrixMultiply(transition, iter8).collect())
+    iter8.unpersist(blocking = true)
+    val iter10 = sc.broadcast(matrixMultiply(transition, iter9).collect())
+    iter9.unpersist(blocking = true)
+    val iter11 = sc.broadcast(matrixMultiply(transition, iter10).collect())
+    iter10.unpersist(blocking = true)
+    val iter12 = sc.broadcast(matrixMultiply(transition, iter11).collect())
+    iter11.unpersist(blocking = true)
+    val iter13 = sc.broadcast(matrixMultiply(transition, iter12).collect())
+    iter12.unpersist(blocking = true)
+    val iter14 = sc.broadcast(matrixMultiply(transition, iter13).collect())
+    iter13.unpersist(blocking = true)
+    val iter15 = sc.broadcast(matrixMultiply(transition, iter14).collect())
+    iter14.unpersist(blocking = true)
+    val iter16 = sc.broadcast(matrixMultiply(transition, iter15).collect())
+    iter15.unpersist(blocking = true)
+    val iter17 = sc.broadcast(matrixMultiply(transition, iter16).collect())
+    iter16.unpersist(blocking = true)
+    val iter18 = sc.broadcast(matrixMultiply(transition, iter17).collect())
+    iter17.unpersist(blocking = true)
+    val iter19 = sc.broadcast(matrixMultiply(transition, iter18).collect())
+    iter18.unpersist(blocking = true)
 
-    /*
-    players.collect().map(println(_))
-    println("AKIRA")
-    println(targetPlayer.value)
-    finalIter.map(println(_))
-    mapData.collect().map(println(_))
-    */
+    // Remove the non-player nodes then map the index,key for later use
+    val playerMapTuple = mapData.filter(_ match {
+      case (data, index) => {
+        data match {
+          case (key, edges) => {
+            key.contains("player")
+          }
+        }
+      }
+    }).map(_ match {
+      case (data, index) => {
+        data match {
+          case (key, edges) => {
+            (index, key)
+          }
+        }
+      }
+    })
+    // Create a map for lookup
+    val nodeMap = sc.broadcast(playerMapTuple.collectAsMap)
+
+    // Remove the non-player nodes from the similarity rankings and remove the target player
+    val iter20 = matrixMultiply(transition, iter19).sortByKey().filter(_ match {
+      case ((key, _), similarity) => {
+        nodeMap.value.get(key) != None
+      }
+    }).filter(_ match {
+      case ((key, _), _) => {
+        key != targetPlayer.value._2
+      }
+    })
+
+    iter19.unpersist(blocking = true)
+    nodeMap.unpersist(blocking = true)
+    targetPlayer.unpersist(blocking = true)
+
+    iter20.map(println(_))
 
     // Clean up
     sc.stop()
