@@ -53,7 +53,6 @@ object RWR {
       }
     })
 
-
     // Collect the tuple map as a hashmap onto the driver node and broadcast it to all nodes.
     // This will be used to lookup the row/columns and vice versa
     val refMap = sc.broadcast(refMapTuple.collectAsMap)
@@ -66,15 +65,23 @@ object RWR {
     // Take the first player. This will be the player that we will find the similarity for
     val targetPlayer = sc.broadcast(players.collect().head)
 
-    // Create the column matrix. Initially it is a matrix with all 0s except for the location
-    // where the target player would be located
-    val initialIter = sc.broadcast(Array(((targetPlayer.value._2, 0.toLong), 1.0)))
+    var columnMatrix = refMapTuple.map(_ match {
+      case (data, index) => {
+        if (index == targetPlayer.value._2) {
+          (index, (0.toLong, 1.toDouble))
+        } else {
+          (index, (0.toLong, 0.toDouble))
+        }
+      }
+    }).filter(_ match {
+      case (row, (col, value)) => value > 0
+    }) 
 
     // Determine the (1 - B) * e_N portion. The assumption is that e_N is a column vector
     // with 1 in a specific spot for target player
-    val initial = refMapTuple.map(_ match {
+    val eN = refMapTuple.map(_ match {
       case (data, index) => {
-        ((targetPlayer.value._2, index), 1 - BETA)
+        ((targetPlayer.value._2, index), 1.0 - BETA)
       }
     })
 
@@ -93,85 +100,38 @@ object RWR {
           }
         }
       }
-    }).union(initial).reduceByKey(_ + _)
+    }).union(eN).reduceByKey(_ + _).map(_ match {
+      case ((row, col), value) => (col, (row, value))
+    }).cache()
 
     // Clean up the broadcast variable since it will not be used again
     refMap.unpersist(blocking = true)
 
-    // A function used to multiply the matrices
-    def matrixMultiply(transition: org.apache.spark.rdd.RDD[((Long, Long), Double)],
-                  broadcast: org.apache.spark.broadcast.Broadcast[Array[((Long, Long), Double)]]): 
-                                    org.apache.spark.rdd.RDD[((Long, Long), Double)] = {
+    def matrixMultiply(transitionMatrix:org.apache.spark.rdd.RDD[(Long, (Long, Double))],
+                       columnMatrix:org.apache.spark.rdd.RDD[(Long, (Long, Double))]):
+                       org.apache.spark.rdd.RDD[(Long, (Long, Double))] = {
 
-      val result = transition.flatMap(_ match {
-        case ((row, col), value) => {
-          broadcast.value.map(_ match {
-            case ((row2, col2), value2) => {
-              if (col == row2) {
-               ((row.toLong, 0.toLong), (value * value2).toDouble)
-              } else {
-               ((row.toLong, 0.toLong), 0.0)
-              }
-            }
-          })
-        }
-      }).filter(_ match {
-        case ((row, col), value) => value > 0
-      }).reduceByKey(_ + _)
+      val newMatrix = transition.join(columnMatrix).map(_ match {
+        case (key, ((row, value1), (col, value2))) => ((row, col), value1*value2)
+      }).reduceByKey(_ + _).map(_ match {
+        case ((row, col), value) => (row, (col, value))
+      })
 
-      result
+      newMatrix
     }
-    
-    // Continuously calculate the result matrix
-    val iter1 = sc.broadcast(matrixMultiply(transition, initialIter).collect())
-    initialIter.unpersist(blocking = true)
-    val iter2 = sc.broadcast(matrixMultiply(transition, iter1).collect())
-    iter1.unpersist(blocking = true)
-    val iter3 = sc.broadcast(matrixMultiply(transition, iter2).collect())
-    iter2.unpersist(blocking = true)
-    val iter4 = sc.broadcast(matrixMultiply(transition, iter3).collect())
-    iter3.unpersist(blocking = true)
-    val iter5 = sc.broadcast(matrixMultiply(transition, iter4).collect())
-    iter4.unpersist(blocking = true)
-    val iter6 = sc.broadcast(matrixMultiply(transition, iter5).collect())
-    iter5.unpersist(blocking = true)
-    val iter7 = sc.broadcast(matrixMultiply(transition, iter6).collect())
-    iter6.unpersist(blocking = true)
-    val iter8 = sc.broadcast(matrixMultiply(transition, iter7).collect())
-    iter7.unpersist(blocking = true)
-    val iter9 = sc.broadcast(matrixMultiply(transition, iter8).collect())
-    iter8.unpersist(blocking = true)
-    val iter10 = sc.broadcast(matrixMultiply(transition, iter9).collect())
-    iter9.unpersist(blocking = true)
-    val iter11 = sc.broadcast(matrixMultiply(transition, iter10).collect())
-    iter10.unpersist(blocking = true)
-    val iter12 = sc.broadcast(matrixMultiply(transition, iter11).collect())
-    iter11.unpersist(blocking = true)
-    val iter13 = sc.broadcast(matrixMultiply(transition, iter12).collect())
-    iter12.unpersist(blocking = true)
-    val iter14 = sc.broadcast(matrixMultiply(transition, iter13).collect())
-    iter13.unpersist(blocking = true)
-    val iter15 = sc.broadcast(matrixMultiply(transition, iter14).collect())
-    iter14.unpersist(blocking = true)
-    val iter16 = sc.broadcast(matrixMultiply(transition, iter15).collect())
-    iter15.unpersist(blocking = true)
-    val iter17 = sc.broadcast(matrixMultiply(transition, iter16).collect())
-    iter16.unpersist(blocking = true)
-    val iter18 = sc.broadcast(matrixMultiply(transition, iter17).collect())
-    iter17.unpersist(blocking = true)
-    val iter19 = sc.broadcast(matrixMultiply(transition, iter18).collect())
-    iter18.unpersist(blocking = true)
 
-    // Remove the non-player nodes then map the index,key for later use
-    val playerMapTuple = mapData.filter(_ match {
-      case (data, index) => {
-        data match {
-          case (key, edges) => {
-            key.contains("player")
-          }
-        }
-      }
-    }).map(_ match {
+    val iter1 = matrixMultiply(transition, columnMatrix)
+    val iter2 = matrixMultiply(transition, iter1)
+    val iter3 = matrixMultiply(transition, iter2)
+    val iter4 = matrixMultiply(transition, iter3)
+    val iter5 = matrixMultiply(transition, iter4)
+    val iter6 = matrixMultiply(transition, iter5)
+    val iter7 = matrixMultiply(transition, iter6)
+    val iter8 = matrixMultiply(transition, iter7)
+    val iter9 = matrixMultiply(transition, iter8)
+    val result = matrixMultiply(transition, iter9)
+
+    val nodeMap = sc.broadcast(mapData.map(_ match {
       case (data, index) => {
         data match {
           case (key, edges) => {
@@ -179,26 +139,13 @@ object RWR {
           }
         }
       }
-    })
-    // Create a map for lookup
-    val nodeMap = sc.broadcast(playerMapTuple.collectAsMap)
+    }).collectAsMap)
 
-    // Remove the non-player nodes from the similarity rankings and remove the target player
-    val iter20 = matrixMultiply(transition, iter19).sortByKey().filter(_ match {
-      case ((key, _), similarity) => {
-        nodeMap.value.get(key) != None
-      }
-    }).filter(_ match {
-      case ((key, _), _) => {
-        key != targetPlayer.value._2
-      }
+    val solution = result.sortByKey().map(_ match {
+      case (row, (col, sim)) => (nodeMap.value(row), (row, col), sim)
     })
 
-    iter19.unpersist(blocking = true)
-    nodeMap.unpersist(blocking = true)
-    targetPlayer.unpersist(blocking = true)
-
-    iter20.map(println(_))
+    solution.collect().map(println(_))
 
     // Clean up
     sc.stop()
