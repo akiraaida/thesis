@@ -5,19 +5,25 @@ object RWR {
   def main(args: Array[String]) {
 
     // Constants
-    val PING_BUCKET_SIZE = 1
+    val PING_BUCKET_SIZE = 25
     val MMR_BUCKET_SIZE = 1
     val BETA = 0.8
+    val TOP = 5
+    val MASTER = "local"
+    val INPUT_FILE = "../inc/data.csv"
 
     // Initialization
-    val spark = SparkSession.builder().master("local").appName("RWR").getOrCreate()
+    val spark = SparkSession.builder().master(MASTER).appName("RWR").getOrCreate()
     val sc = spark.sparkContext
     import spark.implicits._
 
-    // Load the csv file in
-    val csv = spark.read.textFile("../inc/trunc.csv")
+    // Load the csv file into Spark
+    val csv = spark.read.textFile(INPUT_FILE)
 
-    // Filter the data to what is needed, converting it to an RDD and adding the index
+    // Split each line of the CSV file on the ",". Filtering the resulting Array of attributes
+    // to only the needed attributes. This results in an Array of Array(leagueIndex, actionLatency)
+    // entries. This data structure is then cast to an RDD data structure to be used by the
+    // distributed computing environment and then each entry is given an unique index.
     val filterData = csv.map(_.split(",") match {
       case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
         assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
@@ -26,7 +32,15 @@ object RWR {
         actionLatency.toDouble)
     }).rdd.zipWithIndex
 
-    // Assign edges to all of the nodes in the data set. Assigning the index at this point
+    // The filtered data is then constructed into meaningful node values where each entry of the
+    // filtered data will result in the creation of 4 nodes in an Array.
+    // Ping (bucket) -> Player (unique index)
+    // Player (unique index) -> Ping (bucket)
+    // MMR (bucket) -> Player (unique index)
+    // Player (unique index) -> MMR (bucket)
+    // After 4 nodes have been created for each filtered data result, the nodes are aggregated
+    // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3).
+    // This resulting data structure is then given an index for each entry.
     val mapData = filterData.flatMap(_ match {
       case (data, index) => {
         data match {
@@ -42,7 +56,7 @@ object RWR {
       }
     }).groupByKey.zipWithIndex
 
-    // Map each node to a unique integer (the index in this case) to differentiate nodes
+    // Map each node -> edges entry to a node -> index entry to differentiate each node.
     val refMapTuple = mapData.map(_ match {
       case (data, index) => {
         data match {
@@ -53,18 +67,21 @@ object RWR {
       }
     })
 
-    // Collect the tuple map as a hashmap onto the driver node and broadcast it to all nodes.
-    // This will be used to lookup the row/columns and vice versa
+    // Collect the node -> index map as a hashmap onto the driver node and broadcast it to all
+    // nodes. This hashmap will be used to lookup the row/columns when building the transition
+    // matrix.
     val refMap = sc.broadcast(refMapTuple.collectAsMap)
 
-    // Get only the player nodes
-    val players = refMapTuple.filter(_ match {
+    // Filter the values in the node -> index data structure to only contain the player nodes.
+    // Then take the head of the player nodes as the player that we will be calculating the
+    // similarity for. This variable is then broadcast to each node in the distributed environment
+    // from the driver node.
+    val targetPlayer = sc.broadcast(refMapTuple.filter(_ match {
       case (key, index) => key.contains("player")
-    })
+    }).collect().head)
 
-    // Take the first player. This will be the player that we will find the similarity for
-    val targetPlayer = sc.broadcast(players.collect().head)
-
+    // Construct the column matrix which is a value of 1 where the target player's row is and
+    // a 0 everywhere else. The 0 entries are then filtered out to to save space in memory.
     var columnMatrix = refMapTuple.map(_ match {
       case (data, index) => {
         if (index == targetPlayer.value._2) {
@@ -77,19 +94,21 @@ object RWR {
       case (row, (col, value)) => value > 0
     }) 
 
-    // Determine the (1 - B) * e_N portion. The assumption is that e_N is a column vector
-    // with 1 in a specific spot for target player
+    // Calculate the (1 - B) * e_N portion. This will result in a data structure of 
+    // ((row, col), val) which will be added to the transition matrix.
     val eN = refMapTuple.map(_ match {
       case (data, index) => {
         ((targetPlayer.value._2, index), 1.0 - BETA)
       }
     })
 
-    // Create the transition matrix, using the key's unique id as the column and the edge's unique
-    // id as the row. Calculate the value by dividing 1 (100%) by the number of edges for the key.
-    // Then multiply it by beta (the chance the walker will walk at random. Afterwards, union
-    // the initial matrix and reduce the values by the key getting the simplified transition
-    // matrix.
+    // Create the transition matrix by creating a probability value for each edge of a given node.
+    // This is done by taking each edge of the node and dividing 1 (for 100%) by the number of
+    // edges. This value is then multiplied by BETA which is the chance the random walker will
+    // continue walking at random (instead of teleporting back to the start). This value is mapped
+    // to a specific row and column based on the unique value for the key and edge. After this
+    // is completed, the (1 - B) * e_N portion is added to the transition matrix and then the
+    // entire transition matrix is formatted to (col, (row, value)) for later matrix multiplication.
     val transition = mapData.flatMap(_ match {
       case (data, index) => {
         data match {
@@ -104,9 +123,20 @@ object RWR {
       case ((row, col), value) => (col, (row, value))
     }).cache()
 
-    // Clean up the broadcast variable since it will not be used again
+    // Clean up the broadcast variable since it will not be used again past this point.
+    // This will save some memory on the distributed nodes.
     refMap.unpersist(blocking = true)
 
+    // Define a function to do the matrix multiplication. The function will take the transition
+    // matrix and the column matrix. The assumption for these data structures is that they'll
+    // be in the format of...
+    // Left Matrix (Transition) = (col, (row, value))
+    // Right Matrix (Column) = (row, (col, value))
+    // So that they can be joined on the row/col key to do the multiplication. Then the result
+    // of this transformation will be to generate ((row, col), value) entries for each
+    // multiplication. This can then be aggregated by using the (row, col) as a key and doing
+    // the addition portion of the matrix multiplication. Afterwards the entries are converted
+    // back into (row, (col, value)) entries to make the next iterations calculation easier.
     def matrixMultiply(transitionMatrix:org.apache.spark.rdd.RDD[(Long, (Long, Double))],
                        columnMatrix:org.apache.spark.rdd.RDD[(Long, (Long, Double))]):
                        org.apache.spark.rdd.RDD[(Long, (Long, Double))] = {
@@ -120,6 +150,8 @@ object RWR {
       newMatrix
     }
 
+    // Continuously multiply the transition matrix by each permutation of the column matrix.
+    // This will result in the similiarity values for the target player vs. the rest of the nodes.
     val iter1 = matrixMultiply(transition, columnMatrix)
     val iter2 = matrixMultiply(transition, iter1)
     val iter3 = matrixMultiply(transition, iter2)
@@ -131,21 +163,32 @@ object RWR {
     val iter9 = matrixMultiply(transition, iter8)
     val result = matrixMultiply(transition, iter9)
 
-    val nodeMap = sc.broadcast(mapData.map(_ match {
-      case (data, index) => {
-        data match {
-          case (key, edges) => {
-            (index, key)
-          }
-        }
-      }
+    // Create a broadcast variable to map the unique value assigned to each node back to the name
+    // of the node. Only the player nodes are looked at for this data structure so the rest of the
+    // nodes are filtered out.
+    val playerMap = sc.broadcast(refMapTuple.filter(_ match {
+      case (key, index) => key.contains("player")
+    }).map(_ match {
+      case (key, index) => (index, key)
     }).collectAsMap)
 
-    val solution = result.sortByKey().map(_ match {
-      case (row, (col, sim)) => (nodeMap.value(row), (row, col), sim)
-    })
+    // Filter out the values in the similarity solution that are not players and are not the target
+    // player. Then sort the resulting values by their similarity ranking to determine the best
+    // matches for the target player.
+    val solution = result.filter(_ match {
+      case (row, (col, sim)) => playerMap.value.get(row) != None
+    }).filter(_ match {
+      case (row, (col, sim)) => row != targetPlayer.value._2
+    }).map(_ match {
+      case (row, (col, sim)) => (sim, playerMap.value.get(row))
+    }).sortByKey(ascending = false)
 
-    solution.collect().map(println(_))
+    // Clean up the broadcast variable since they will not be used any longer.
+    playerMap.unpersist(blocking = true)
+    targetPlayer.unpersist(blocking = true)
+
+    // Take the first N values and print them out.
+    solution.take(TOP).map(println(_))
 
     // Clean up
     sc.stop()

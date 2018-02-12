@@ -1,4 +1,5 @@
 *.swp
+big*.csv
 target
 project
 transition
