@@ -20,27 +20,18 @@ object RWR {
     // Load the csv file into Spark
     val csv = sc.textFile(INPUT_FILE)
 
-    // Give each entry an index and assign it to each array that is created from the split. The
-    // split occurs on  each line of the CSV file on the ",". This will be used later on when
-    // the match is made.
-    val data = csv.zipWithIndex.map(_ match {
-      case (data, index) => {
-        (data.split(","), index)
-      }
-    })
+    // Split each entry on the comma getting an object of Array entries, an Array entry representing
+    // a player
+    val data = csv.map(_.split(","))
 
     // Filter the array of data down to the needed attributes. This results in an object of
     // (leagueIndex, actionLatency, index) entries.
     val filterData = data.map(_ match {
-      case (data, index) => {
-        data match {
-          case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
-              assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
-              gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
-              uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed) => (leagueIndex.toDouble,
-              actionLatency.toDouble, index)
-        }
-      }
+      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) =>
+          (leagueIndex.toDouble, actionLatency.toDouble, priority.toInt)
     })
 
     // The filtered data is then constructed into meaningful node values where each entry of the
@@ -53,12 +44,12 @@ object RWR {
     // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3).
     // This resulting data structure is then given an index for each entry.
     val mapData = filterData.flatMap(_ match {
-      case (mmr, ping, index) => {
+      case (mmr, ping, priority) => {
         Array(
-          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + index),
-          ("player" + index, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
-          ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + index),
-          ("player" + index, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE))
+          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
+          ("player" + priority, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
+          ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + priority),
+          ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE))
         )
       }
     }).groupByKey.zipWithIndex
@@ -79,9 +70,16 @@ object RWR {
     // matrix.
     val refMap = sc.broadcast(refMapTuple.collectAsMap)
 
-    // Get the first index of the filterData RDD which is guranteed to be the first line of the
-    // file that is accessed.
-    val targetIndex = sc.broadcast(filterData.first()._3)
+    // Get the player with the lowest priority (0)
+    val targetIndex = sc.broadcast(filterData.filter(_ match {
+      case (mmr, ping, priority) => {
+        priority == 0
+      }
+    }).map(_ match {
+      case (mmr, ping, priority) => {
+        priority
+      }
+    }).first())
 
     // Using the line index, find the player that has the same index by filtering out every other
     // value then mapping it as a key with the unordered index (used for the transition matrix).
@@ -206,12 +204,13 @@ object RWR {
       case (row, (col, sim)) => (playerMap.value(row), sim)
     }).takeOrdered(TOP)(Ordering[Double].reverse.on(_._2))
 
+    // Print the matches
+    println(targetPlayer.value)
+    matches.map(println(_))
+
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
     targetPlayer.unpersist(blocking = true)
-
-    // Print the matches
-    matches.map(println(_))
 
     // Clean up
     sc.stop()
