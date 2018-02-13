@@ -247,6 +247,7 @@ object RWR {
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
     targetPlayer.unpersist(blocking = true)
+    removedPriorities.unpersist(blocking = true)
 
     // Clean up
     sc.stop()
