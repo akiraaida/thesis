@@ -204,7 +204,43 @@ object RWR {
       case (row, (col, sim)) => (playerMap.value(row), sim)
     }).takeOrdered(TOP)(Ordering[Double].reverse.on(_._2))
 
-    // Print the matches
+    // Get the priority values that are being removed so the priority values can be updated
+    val removedPriorities = sc.broadcast((matches.map(_._1) :+ targetPlayer.value._1).map(_.
+      replaceAll("\\D", "").toInt))
+
+    // Remove the matched players from the data and fix the priority values by substracting the
+    // priority value from the number of priority values that have been removed below it.
+    val outputData = data.filter(_ match {
+      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) => {
+      !removedPriorities.value.map(_ match {
+        case removedPriority => {
+            priority.toInt == removedPriority
+          }
+        }).contains(true)
+      }
+    }).map(_ match {
+      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) => {
+        removedPriorities.value.filter(_ match {
+          case removedPriority => {
+            removedPriority < priority.toInt
+          }
+        }).size match {
+          case lessThan => Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm,
+            selectByHotKeys, assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks,
+            numberOfPacs, gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored,
+            workersMade, uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed,
+            (priority.toInt - lessThan).toString)
+        }
+      }
+    })
+
+    // Print the target player and the matches
     println(targetPlayer.value)
     matches.map(println(_))
 
