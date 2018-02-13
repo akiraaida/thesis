@@ -11,6 +11,7 @@ object RWR {
     val TOP = 1
     val MASTER = "local"
     val INPUT_FILE = "../inc/data.csv"
+    val OUTPUT = "output"
 
     // Initialization
     val spark = SparkSession.builder().master(MASTER).appName("RWR").getOrCreate()
@@ -231,14 +232,18 @@ object RWR {
             removedPriority < priority.toInt
           }
         }).size match {
-          case lessThan => Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm,
-            selectByHotKeys, assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks,
-            numberOfPacs, gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored,
-            workersMade, uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed,
-            (priority.toInt - lessThan).toString)
+          case lessThan => gameId + "," + leagueIndex + "," + age + "," + hoursPerWeek + "," +
+            totalHours + "," + apm + "," + selectByHotKeys + "," + assignToHotKeys + "," +
+            uniqueHotKeys + "," + minimapAttacks + "," + minimapRightClicks + "," + numberOfPacs +
+            "," + gapBetweenPacs + "," + actionLatency + "," + actionsInPac + "," +
+            totalMapExplored + "," + workersMade + "," + uniqueUnitsMade + "," + complexUnitsMade +
+            "," + complexAbilitiesUsed + "," + (priority.toInt - lessThan).toString
         }
       }
     })
+
+    // Save the filtered data
+    outputData.saveAsTextFile(OUTPUT)
 
     // Print the target player and the matches
     println(targetPlayer.value)

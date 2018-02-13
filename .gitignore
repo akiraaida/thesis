@@ -1,5 +1,4 @@
 *.swp
-big*.csv
-target
+output
 project
-transition
+target
