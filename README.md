@@ -11,8 +11,8 @@
 #### Directory Structure
 - **inc/**: The input and output data files
     - SkillCraft1_Dataset.csv: The raw dataset from online (http://archive.ics.uci.edu/ml/datasets/skillcraft1+master+table+dataset)
-    - data.csv: The dataset with the first line (header) removed. Used as input for the PrepData.scala program.
-    - trunc.csv: A small segment of the data.csv used for testing.
+    - format.py: A script used to format the SkillCrat1_Dataset.csv to a useful input file
+    - data.csv: The formatted dataset with the first line (header) removed and priority values appended to the end of each line.
 - **doc/**: Reference material
     - book.pdf: Mining of Massive Datasets (http://www.mmds.org/)
 - **src/**: The source code implementation of the solution.
