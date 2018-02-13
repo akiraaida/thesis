@@ -8,7 +8,7 @@ object RWR {
     val PING_BUCKET_SIZE = 25
     val MMR_BUCKET_SIZE = 1
     val BETA = 0.8
-    val TOP = 5
+    val TOP = 1
     val MASTER = "local"
     val INPUT_FILE = "../inc/data.csv"
 
@@ -21,19 +21,24 @@ object RWR {
     val csv = sc.textFile(INPUT_FILE)
 
     // Give each entry an index and assign it to each array that is created from the split. The
-    // split occurs on  each line of the CSV file on the ",". Filtering the resulting Array of
-    // attributes to only the needed attributes. This results in an Array of (leagueIndex,
-    // actionLatency, index) entries. This data structure is then cast to an RDD data structure to
-    // be used by the distributed computing environment and then each entry is given an unique
-    // index.
-    val filterData = csv.zipWithIndex.map(_ match {
+    // split occurs on  each line of the CSV file on the ",". This will be used later on when
+    // the match is made.
+    val data = csv.zipWithIndex.map(_ match {
       case (data, index) => {
-        data.split(",") match {
+        (data.split(","), index)
+      }
+    })
+
+    // Filter the array of data down to the needed attributes. This results in an object of
+    // (leagueIndex, actionLatency, index) entries.
+    val filterData = data.map(_ match {
+      case (data, index) => {
+        data match {
           case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
-            assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
-            gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
-            uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed) => (leagueIndex.toDouble,
-            actionLatency.toDouble, index)
+              assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+              gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+              uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed) => (leagueIndex.toDouble,
+              actionLatency.toDouble, index)
         }
       }
     })
@@ -74,13 +79,30 @@ object RWR {
     // matrix.
     val refMap = sc.broadcast(refMapTuple.collectAsMap)
 
-    // Filter the values in the node -> index data structure to only contain the player nodes.
-    // Then take the head of the player nodes as the player that we will be calculating the
-    // similarity for. This variable is then broadcast to each node in the distributed environment
-    // from the driver node.
-    val targetPlayer = sc.broadcast(refMapTuple.filter(_ match {
-      case (key, index) => key.contains("player")
-    }).collect().head)
+    // Get the first index of the filterData RDD which is guranteed to be the first line of the
+    // file that is accessed.
+    val targetIndex = sc.broadcast(filterData.first()._3)
+
+    // Using the line index, find the player that has the same index by filtering out every other
+    // value then mapping it as a key with the unordered index (used for the transition matrix).
+    // Afterwards, make this value a broadcast variable
+    val targetPlayer = sc.broadcast(mapData.filter(_ match {
+      case (data, index) => {
+        data match {
+          case (key, edges) => {
+            key == ("player" + targetIndex.value)
+          }
+        }
+      }
+    }).map(_ match {
+      case ((key, edges), index) => {
+        (key, index)
+      }
+    }).first())
+
+    // Clean up the broadcast variable since it will not be used again past this point.
+    // This will save some memory on the distributed nodes.
+    targetIndex.unpersist(blocking = true)
 
     // Construct the column matrix which is a value of 1 where the target player's row is and
     // a 0 everywhere else. The 0 entries are then filtered out to to save space in memory.
@@ -174,23 +196,22 @@ object RWR {
       case (key, index) => (index, key)
     }).collectAsMap)
 
-    // Filter out the values in the similarity solution that are not players and are not the target
-    // player. Then sort the resulting values by their similarity ranking to determine the best
-    // matches for the target player.
-    val solution = result.filter(_ match {
+    // Filter out the values in the similarity matches that are not players and are not the target
+    // player. Then take the TOP number of highest similarity values.
+    val matches = result.filter(_ match {
       case (row, (col, sim)) => playerMap.value.get(row) != None
     }).filter(_ match {
       case (row, (col, sim)) => row != targetPlayer.value._2
     }).map(_ match {
-      case (row, (col, sim)) => (sim, playerMap.value.get(row))
-    }).sortByKey(ascending = false)
+      case (row, (col, sim)) => (playerMap.value(row), sim)
+    }).takeOrdered(TOP)(Ordering[Double].reverse.on(_._2))
 
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
     targetPlayer.unpersist(blocking = true)
 
-    // Take the first N values and print them out.
-    solution.take(TOP).map(println(_))
+    // Print the matches
+    matches.map(println(_))
 
     // Clean up
     sc.stop()
