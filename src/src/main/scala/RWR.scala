@@ -187,8 +187,6 @@ object RWR {
 
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
-    println("AKIRA")
-    println(targetPlayer.value)
     targetPlayer.unpersist(blocking = true)
 
     // Take the first N values and print them out.
