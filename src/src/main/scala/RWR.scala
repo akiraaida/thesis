@@ -18,19 +18,25 @@ object RWR {
     import spark.implicits._
 
     // Load the csv file into Spark
-    val csv = spark.read.textFile(INPUT_FILE)
+    val csv = sc.textFile(INPUT_FILE)
 
-    // Split each line of the CSV file on the ",". Filtering the resulting Array of attributes
-    // to only the needed attributes. This results in an Array of Array(leagueIndex, actionLatency)
-    // entries. This data structure is then cast to an RDD data structure to be used by the
-    // distributed computing environment and then each entry is given an unique index.
-    val filterData = csv.map(_.split(",") match {
-      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
-        assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
-        gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
-        uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed) => Array(leagueIndex.toDouble,
-        actionLatency.toDouble)
-    }).rdd.zipWithIndex
+    // Give each entry an index and assign it to each array that is created from the split. The
+    // split occurs on  each line of the CSV file on the ",". Filtering the resulting Array of
+    // attributes to only the needed attributes. This results in an Array of (leagueIndex,
+    // actionLatency, index) entries. This data structure is then cast to an RDD data structure to
+    // be used by the distributed computing environment and then each entry is given an unique
+    // index.
+    val filterData = csv.zipWithIndex.map(_ match {
+      case (data, index) => {
+        data.split(",") match {
+          case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+            assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+            gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+            uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed) => (leagueIndex.toDouble,
+            actionLatency.toDouble, index)
+        }
+      }
+    })
 
     // The filtered data is then constructed into meaningful node values where each entry of the
     // filtered data will result in the creation of 4 nodes in an Array.
@@ -42,17 +48,13 @@ object RWR {
     // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3).
     // This resulting data structure is then given an index for each entry.
     val mapData = filterData.flatMap(_ match {
-      case (data, index) => {
-        data match {
-          case Array(mmr, ping) => {
-            Array(
-              ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + index),
-              ("player" + index, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
-              ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + index),
-              ("player" + index, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE))
-            )
-          }
-        }
+      case (mmr, ping, index) => {
+        Array(
+          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + index),
+          ("player" + index, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
+          ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + index),
+          ("player" + index, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE))
+        )
       }
     }).groupByKey.zipWithIndex
 
@@ -185,6 +187,8 @@ object RWR {
 
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
+    println("AKIRA")
+    println(targetPlayer.value)
     targetPlayer.unpersist(blocking = true)
 
     // Take the first N values and print them out.
