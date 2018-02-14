@@ -1,11 +1,11 @@
 # A counter to set each line of the file with a priority value
 priority = 0
 # A size multiplier so the file can be scaled up for testing
-sizeMultiplier = 1
+sizeMultiplier = 1000
 
 # Open the input and output files
 inputFile = open("SkillCraft1_Dataset.csv", "r")
-outputFile = open("data.csv", "w")
+outputFile = open("big.csv", "w")
 
 for _ in range(sizeMultiplier):
     # Used to remove the header in the starting csv file

@@ -10,7 +10,7 @@ object RWR {
     val BETA = 0.8
     val TOP = 1
     val MASTER = "local"
-    val INPUT_FILE = "../inc/data.csv"
+    val INPUT_FILE = "../inc/big.csv"
     val OUTPUT = "output"
 
     // Initialization
