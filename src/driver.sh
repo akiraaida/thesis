@@ -1,9 +1,21 @@
 #!/bin/bash
 
-# Delete the inc directory if it exists
-if [ -d "inc" ]; then
-    rm -rf inc/*
+# Create the inc directory if it doesn't exist
+if [ ! -d "inc" ]; then
+    mkdir inc
 fi
+
+# Delete the output directories if they exist
+if [ -d "output" ]; then
+    rm -rf output/
+fi
+
+if [ -d "matches" ]; then
+    rm -rf matches/
+fi
+
+# Remove the contents of the inc directory
+rm -rf inc/*
 
 # Copy the original data file into the inc folder
 cp ../inc/data.csv ./inc
@@ -11,18 +23,9 @@ cp ../inc/data.csv ./inc
 # Compile the code
 sbt package
 
-# Attempt to match 10 players
-for value in {1..1}
+# Match the players
+for value in {1..10}
 do
-    # Delete the output directory if it exists
-    if [ -d "output" ]; then
-        rm -rf output/
-    fi
-
-    if [ -d "matches" ]; then
-        rm -rf matches/
-    fi
-
     # Execute the Spark program
     spark-submit --class "RWR" --master local[4] target/scala-2.11/rwr_2.11-1.0.jar
 
@@ -37,5 +40,14 @@ do
     cat ./inc/part* >> ./inc/matches.txt
     echo "" >> ./inc/matches.txt
     rm ./inc/part*
+
+    # Delete the output directories if they exist
+    if [ -d "output" ]; then
+        rm -rf output/
+    fi
+
+    if [ -d "matches" ]; then
+        rm -rf matches/
+    fi
 
 done
