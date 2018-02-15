@@ -7,10 +7,11 @@ object RWR {
     // Constants
     val PING_BUCKET_SIZE = 25
     val MMR_BUCKET_SIZE = 1
+    val TOTAL_HOURS_BUCKET_SIZE = 250
     val BETA = 0.8
     val TOP = 1
     val MASTER = "local"
-    val INPUT_FILE = "../inc/big.csv"
+    val INPUT_FILE = "../inc/data.csv"
     val OUTPUT = "output"
 
     // Initialization
@@ -32,25 +33,27 @@ object RWR {
           assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
           gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
           uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) =>
-          (leagueIndex.toDouble, actionLatency.toDouble, priority.toInt)
+          if (totalHours != "\"?\"") {
+            (leagueIndex.toDouble, actionLatency.toDouble, totalHours.toDouble, priority.toInt)
+          } else {
+            (leagueIndex.toDouble, actionLatency.toDouble, 0.toDouble, priority.toInt)
+          }
     })
 
     // The filtered data is then constructed into meaningful node values where each entry of the
-    // filtered data will result in the creation of 4 nodes in an Array.
-    // Ping (bucket) -> Player (unique index)
-    // Player (unique index) -> Ping (bucket)
-    // MMR (bucket) -> Player (unique index)
-    // Player (unique index) -> MMR (bucket)
-    // After 4 nodes have been created for each filtered data result, the nodes are aggregated
-    // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3).
+    // filtered data will result in the creation of nodes in an Array.
+    // After the nodes have been created for each filtered data result, the nodes are aggregated
+    // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3, ..).
     // This resulting data structure is then given an index for each entry.
     val mapData = filterData.flatMap(_ match {
-      case (mmr, ping, priority) => {
+      case (mmr, ping, hrs, priority) => {
         Array(
-          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
           ("player" + priority, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
+          ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE)),
+          ("player" + priority, "hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE)),
           ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + priority),
-          ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE))
+          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
+          ("hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE), "player" + priority)
         )
       }
     }).groupByKey.zipWithIndex
@@ -73,11 +76,11 @@ object RWR {
 
     // Get the player with the lowest priority (0)
     val targetIndex = sc.broadcast(filterData.filter(_ match {
-      case (mmr, ping, priority) => {
+      case (mmr, ping, totalHours, priority) => {
         priority == 0
       }
     }).map(_ match {
-      case (mmr, ping, priority) => {
+      case (mmr, ping, totalHours, priority) => {
         priority
       }
     }).first())
