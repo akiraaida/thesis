@@ -24,10 +24,10 @@ cp ../inc/data.csv ./inc
 sbt package
 
 # Match the players
-for value in {1..10}
+for value in {1..1}
 do
     # Execute the Spark program
-    spark-submit --class "RWR" --master local[4] target/scala-2.11/rwr_2.11-1.0.jar
+    spark-submit --class "RWR" --master local[*] target/scala-2.11/rwr_2.11-1.0.jar
 
     # Make the output of the Spark program the input for the next iteration
     mv ./output/part* ./inc/

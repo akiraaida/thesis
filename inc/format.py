@@ -1,11 +1,11 @@
 # A counter to set each line of the file with a priority value
 priority = 0
 # A size multiplier so the file can be scaled up for testing
-sizeMultiplier = 1000
+sizeMultiplier = 2000
 
 # Open the input and output files
 inputFile = open("SkillCraft1_Dataset.csv", "r")
-outputFile = open("big.csv", "w")
+outputFile = open("data.csv", "w")
 
 for _ in range(sizeMultiplier):
     # Used to remove the header in the starting csv file
@@ -20,6 +20,8 @@ for _ in range(sizeMultiplier):
             line = line.replace("\n", "") + "," + str(priority) + "\n"
             outputFile.write(line)
             priority += 1
+            if priority % 1000 == 0:
+                break
 
 # Close the input and output files
 inputFile.close()
