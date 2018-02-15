@@ -1,5 +1,6 @@
 *.swp
 output
+matches
 project
 target
-big.csv
+src/inc/*

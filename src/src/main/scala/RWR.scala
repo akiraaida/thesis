@@ -13,6 +13,7 @@ object RWR {
     val MASTER = "local"
     val INPUT_FILE = "./inc/data.csv"
     val OUTPUT = "output"
+    val MATCHES = "matches"
 
     // Initialization
     val spark = SparkSession.builder().master(MASTER).appName("RWR").getOrCreate()
@@ -245,12 +246,37 @@ object RWR {
       }
     })
 
+    // Get the match entries
+    val pairings = data.filter(_ match {
+      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) => {
+      removedPriorities.value.map(_ match {
+        case removedPriority => {
+            priority.toInt == removedPriority
+          }
+        }).contains(true)
+      }
+    }).map(_ match {
+      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) => {
+          gameId + "," + leagueIndex + "," + age + "," + hoursPerWeek + "," +
+          totalHours + "," + apm + "," + selectByHotKeys + "," + assignToHotKeys + "," +
+          uniqueHotKeys + "," + minimapAttacks + "," + minimapRightClicks + "," + numberOfPacs +
+          "," + gapBetweenPacs + "," + actionLatency + "," + actionsInPac + "," +
+          totalMapExplored + "," + workersMade + "," + uniqueUnitsMade + "," + complexUnitsMade +
+          "," + complexAbilitiesUsed
+        }
+    })
+
     // Save the filtered data
     outputData.saveAsTextFile(OUTPUT)
 
-    // Print the target player and the matches
-    println(targetPlayer.value)
-    matches.map(println(_))
+    // Save the pairings to a text file
+    pairings.saveAsTextFile(MATCHES)
 
     // Clean up the broadcast variable since they will not be used any longer.
     playerMap.unpersist(blocking = true)
