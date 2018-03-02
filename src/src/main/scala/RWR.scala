@@ -7,9 +7,12 @@ object RWR {
     // Constants
     val PING_BUCKET_SIZE = 25
     val MMR_BUCKET_SIZE = 1
-    val TOTAL_HOURS_BUCKET_SIZE = 250
+    val TOTAL_HOURS_BUCKET_SIZE = 500
+    val PING_IMPORTANCE = 0.45
+    val MMR_IMPORTANCE = 0.45
+    val TOTAL_HRS_IMPORTANCE = 0.1
     val BETA = 0.8
-    val TOP = 1
+    val TOP = 3
     val MASTER = "local"
     val INPUT_FILE = "./inc/data.csv"
     val OUTPUT = "output"
@@ -141,7 +144,17 @@ object RWR {
         data match {
           case (key, edges) => {
             edges.map(edge => {
-              ((refMap.value(edge), refMap.value(key)), (1.0 / edges.size) * BETA)
+              if (key.contains("player")) {
+                if (edge.contains("mmr")) {
+                  ((refMap.value(edge), refMap.value(key)), MMR_IMPORTANCE * BETA)
+                } else if (edge.contains("ping")) {
+                  ((refMap.value(edge), refMap.value(key)), PING_IMPORTANCE * BETA)
+                } else {
+                  ((refMap.value(edge), refMap.value(key)), TOTAL_HRS_IMPORTANCE * BETA)
+                }
+              } else {
+                ((refMap.value(edge), refMap.value(key)), (1.0 / edges.size) * BETA)
+              }
             })
           }
         }
