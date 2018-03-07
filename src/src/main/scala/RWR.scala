@@ -12,11 +12,49 @@ object RWR {
     val MMR_IMPORTANCE = 0.45
     val TOTAL_HRS_IMPORTANCE = 0.1
     val BETA = 0.8
-    val TOP = 3
+    val TOP = 1
     val MASTER = "local"
     val INPUT_FILE = "./inc/data.csv"
     val OUTPUT = "output"
     val MATCHES = "matches"
+
+    def filter(attributes: Array[String]) = {
+      attributes match {
+        case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
+          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
+          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
+          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) =>
+
+          if (totalHours != "\"?\"") {
+            (leagueIndex.toDouble, actionLatency.toDouble, totalHours.toDouble, priority.toInt)
+          } else {
+            (leagueIndex.toDouble, actionLatency.toDouble, 0.toDouble, priority.toInt)
+          }
+      }
+    }
+
+    def createEdges(edges: (Double, Double, Double, Int)) = {
+      edges match {
+        case (mmr, ping, hrs, priority) => {
+          Array(
+            ("player" + priority, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
+            ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE)),
+            ("player" + priority, "hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE)),
+            ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + priority),
+            ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
+            ("hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE), "player" + priority)
+          )
+        }
+      }
+    }
+
+    def mapEdges(dataEntry: ((String, Iterable[String]), Long)) = {
+      dataEntry match {
+        case ((key, edges), index) => {
+          (key, index)
+        }
+      }
+    }
 
     // Initialization
     val spark = SparkSession.builder().master(MASTER).appName("RWR").getOrCreate()
@@ -29,49 +67,19 @@ object RWR {
     // Split each entry on the comma getting an object of Array entries, an Array entry representing
     // a player
     val data = csv.map(_.split(","))
-
     // Filter the array of data down to the needed attributes. This results in an object of
     // (leagueIndex, actionLatency, index) entries.
-    val filterData = data.map(_ match {
-      case Array(gameId, leagueIndex, age, hoursPerWeek, totalHours, apm, selectByHotKeys,
-          assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
-          gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
-          uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) =>
-          if (totalHours != "\"?\"") {
-            (leagueIndex.toDouble, actionLatency.toDouble, totalHours.toDouble, priority.toInt)
-          } else {
-            (leagueIndex.toDouble, actionLatency.toDouble, 0.toDouble, priority.toInt)
-          }
-    })
+    val filterData = data.map(filter(_))
 
     // The filtered data is then constructed into meaningful node values where each entry of the
     // filtered data will result in the creation of nodes in an Array.
     // After the nodes have been created for each filtered data result, the nodes are aggregated
     // to key -> values which is effectively the node and edges. ie. player0 -> (mmr1, ping3, ..).
     // This resulting data structure is then given an index for each entry.
-    val mapData = filterData.flatMap(_ match {
-      case (mmr, ping, hrs, priority) => {
-        Array(
-          ("player" + priority, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
-          ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE)),
-          ("player" + priority, "hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE)),
-          ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + priority),
-          ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
-          ("hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE), "player" + priority)
-        )
-      }
-    }).groupByKey.zipWithIndex
+    val mapData = filterData.flatMap(createEdges(_)).groupByKey.zipWithIndex
 
     // Map each node -> edges entry to a node -> index entry to differentiate each node.
-    val refMapTuple = mapData.map(_ match {
-      case (data, index) => {
-        data match {
-          case (key, edges) => {
-            (key, index)
-          }
-        }
-      }
-    })
+    val refMapTuple = mapData.map(mapEdges(_))
 
     // Collect the node -> index map as a hashmap onto the driver node and broadcast it to all
     // nodes. This hashmap will be used to lookup the row/columns when building the transition
