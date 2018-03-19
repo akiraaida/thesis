@@ -8,9 +8,15 @@ object RWR {
     val PING_BUCKET_SIZE = 25
     val MMR_BUCKET_SIZE = 1
     val TOTAL_HOURS_BUCKET_SIZE = 500
-    val PING_IMPORTANCE = 0.45
-    val MMR_IMPORTANCE = 0.45
-    val TOTAL_HRS_IMPORTANCE = 0.1
+    val HOURS_WEEK_BUCKET_SIZE = 5
+    val PING_IMPORTANCE = 0.3
+    val PING_WEAK_IMPORTANCE = 0.05
+    val MMR_IMPORTANCE = 0.3
+    val MMR_WEAK_IMPORTANCE = 0.05
+    val TOTAL_HRS_IMPORTANCE = 0.08
+    val TOTAL_WEAK_HRS_IMPORTANCE = 0.01
+    val WEEK_HRS_IMPORTANCE = 0.08
+    val WEEK_WEAK_HRS_IMPORTANCE = 0.01
     val BETA = 0.8
     val TOP = 1
     val MASTER = "local"
@@ -26,22 +32,26 @@ object RWR {
           uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) =>
 
           if (totalHours != "\"?\"") {
-            (leagueIndex.toDouble, actionLatency.toDouble, totalHours.toDouble, priority.toInt)
+            (leagueIndex.toDouble, actionLatency.toDouble, hoursPerWeek.toDouble,
+              totalHours.toDouble, priority.toInt)
           } else {
-            (leagueIndex.toDouble, actionLatency.toDouble, 0.toDouble, priority.toInt)
+            (leagueIndex.toDouble, actionLatency.toDouble, hoursPerWeek.toDouble, 0.toDouble,
+              priority.toInt)
           }
       }
     }
 
-    def createEdges(edges: (Double, Double, Double, Int)) = {
+    def createEdges(edges: (Double, Double, Double, Double, Int)) = {
       edges match {
-        case (mmr, ping, hrs, priority) => {
+        case (mmr, ping, weekhrs, hrs, priority) => {
           Array(
             ("player" + priority, "ping" + Math.round(ping / PING_BUCKET_SIZE)),
             ("player" + priority, "mmr" + Math.round(mmr / MMR_BUCKET_SIZE)),
+            ("player" + priority, "weekhrs" + Math.round(weekhrs / HOURS_WEEK_BUCKET_SIZE)),
             ("player" + priority, "hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE)),
             ("mmr" + Math.round(mmr / MMR_BUCKET_SIZE), "player" + priority),
             ("ping" + Math.round(ping / PING_BUCKET_SIZE), "player" + priority),
+            ("weekhrs" + Math.round(weekhrs / HOURS_WEEK_BUCKET_SIZE), "player" + priority),
             ("hrs" + Math.round(hrs / TOTAL_HOURS_BUCKET_SIZE), "player" + priority)
           )
         }
@@ -88,11 +98,11 @@ object RWR {
 
     // Get the player with the lowest priority (0)
     val targetIndex = sc.broadcast(filterData.filter(_ match {
-      case (mmr, ping, totalHours, priority) => {
+      case (mmr, ping, weekHrs, totalHours, priority) => {
         priority == 0
       }
     }).map(_ match {
-      case (mmr, ping, totalHours, priority) => {
+      case (mmr, ping, weekHrs, totalHours, priority) => {
         priority
       }
     }).first())
@@ -140,6 +150,34 @@ object RWR {
       }
     })
 
+
+    // Function to create weak edges if they exist (closest 2 buckets)
+    def assignTransition(edge: String, key: String, edgeStr: String, num: Int, importance: Double,
+                          weakImportance: Double): Array[((Long, Long), Double)] = { 
+      if (refMap.value.contains(edgeStr + (num+1)) && refMap.value.contains(edgeStr + (num-1))) {
+        return Array(
+          ((refMap.value(edge), refMap.value(key)), importance * BETA),
+          ((refMap.value(edgeStr + (num+1)), refMap.value(key)), weakImportance * BETA),
+          ((refMap.value(edgeStr + (num-1)), refMap.value(key)), weakImportance * BETA)
+        )
+      } else if (refMap.value.contains(edgeStr + (num+1))) {
+        return Array(
+          ((refMap.value(edge), refMap.value(key)), importance * BETA),
+          ((refMap.value(edgeStr + (num+1)), refMap.value(key)), (weakImportance*2) * BETA)
+        )
+      } else if (refMap.value.contains(edgeStr + (num-1))) {
+        return Array(
+          ((refMap.value(edge), refMap.value(key)), importance * BETA),
+          ((refMap.value(edgeStr + (num-1)), refMap.value(key)), (weakImportance*2) * BETA)
+        )
+      } else {
+        return Array(
+          ((refMap.value(edge), refMap.value(key)), (importance + (weakImportance*2)) * BETA)
+        )
+      }
+    }
+    
+
     // Create the transition matrix by creating a probability value for each edge of a given node.
     // This is done by taking each edge of the node and dividing 1 (for 100%) by the number of
     // edges. This value is then multiplied by BETA which is the chance the random walker will
@@ -151,17 +189,25 @@ object RWR {
       case (data, index) => {
         data match {
           case (key, edges) => {
-            edges.map(edge => {
+            edges.flatMap(edge => {
               if (key.contains("player")) {
+                val num = ("""\d+""".r findAllIn edge).toList(0).toInt
                 if (edge.contains("mmr")) {
-                  ((refMap.value(edge), refMap.value(key)), MMR_IMPORTANCE * BETA)
+                  assignTransition(edge, key, "mmr", num, MMR_IMPORTANCE, MMR_WEAK_IMPORTANCE)
                 } else if (edge.contains("ping")) {
-                  ((refMap.value(edge), refMap.value(key)), PING_IMPORTANCE * BETA)
+                  assignTransition(edge, key, "ping", num, PING_IMPORTANCE,
+                    PING_WEAK_IMPORTANCE)
+                } else if (edge.contains("weekhrs")) {
+                  assignTransition(edge, key, "weekhrs", num, WEEK_HRS_IMPORTANCE,
+                    WEEK_WEAK_HRS_IMPORTANCE)
                 } else {
-                  ((refMap.value(edge), refMap.value(key)), TOTAL_HRS_IMPORTANCE * BETA)
+                  assignTransition(edge, key, "hrs", num, TOTAL_HRS_IMPORTANCE,
+                    TOTAL_WEAK_HRS_IMPORTANCE)
                 }
               } else {
-                ((refMap.value(edge), refMap.value(key)), (1.0 / edges.size) * BETA)
+                Array(
+                  ((refMap.value(edge), refMap.value(key)), (1.0 / edges.size) * BETA)
+                )
               }
             })
           }
@@ -170,6 +216,7 @@ object RWR {
     }).union(eN).reduceByKey(_ + _).map(_ match {
       case ((row, col), value) => (col, (row, value))
     }).cache()
+
 
     // Clean up the broadcast variable since it will not be used again past this point.
     // This will save some memory on the distributed nodes.
@@ -284,12 +331,8 @@ object RWR {
           assignToHotKeys, uniqueHotKeys, minimapAttacks, minimapRightClicks, numberOfPacs,
           gapBetweenPacs, actionLatency, actionsInPac, totalMapExplored, workersMade,
           uniqueUnitsMade, complexUnitsMade, complexAbilitiesUsed, priority) => {
-          gameId + "," + leagueIndex + "," + age + "," + hoursPerWeek + "," +
-          totalHours + "," + apm + "," + selectByHotKeys + "," + assignToHotKeys + "," +
-          uniqueHotKeys + "," + minimapAttacks + "," + minimapRightClicks + "," + numberOfPacs +
-          "," + gapBetweenPacs + "," + actionLatency + "," + actionsInPac + "," +
-          totalMapExplored + "," + workersMade + "," + uniqueUnitsMade + "," + complexUnitsMade +
-          "," + complexAbilitiesUsed
+            "Player - " + "Skill: " + leagueIndex + ", Latency: " + actionsInPac + 
+            ", Total Hours: " + totalHours + ", Week Hours: " + hoursPerWeek
         }
     })
 
